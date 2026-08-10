@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch fresh playlist from JioSaavn on every request
+    // Fetch fresh playlist with limit=500 to capture all new songs
     const response = await fetch(
-      `${JIOSAAVN_API}?link=${encodeURIComponent(link)}&limit=50`,
+      `${JIOSAAVN_API}?link=${encodeURIComponent(link)}&limit=500`,
       { cache: "no-store" }
     );
 

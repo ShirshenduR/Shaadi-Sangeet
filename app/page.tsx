@@ -65,7 +65,7 @@ export default function Page() {
     return () => window.clearInterval(interval);
   }, []);
 
-  // Pull the whole baarat playlist from JioSaavn on mount.
+  // Pull the baarat playlist from JioSaavn on mount and poll periodically for new songs.
   useEffect(() => {
     let active = true;
 
@@ -80,22 +80,39 @@ export default function Page() {
         if (!active) return;
 
         if (data.songs && data.songs.length > 0) {
-          setSongs(data.songs);
+          setSongs((prevSongs) => {
+            // Keep track of current playing song to preserve selection index
+            const currentSong = prevSongs[currentTrackIndex];
+            if (currentSong) {
+              const matchedIndex = data.songs!.findIndex(
+                (s) => s.id === currentSong.id || s.src === currentSong.src
+              );
+              if (matchedIndex !== -1 && matchedIndex !== currentTrackIndex) {
+                setCurrentTrackIndex(matchedIndex);
+              }
+            }
+            return data.songs!;
+          });
           setPlaylistName(data.name || "बारात");
           setLoadState("ready");
-        } else {
+        } else if (songs.length === 0) {
           setLoadState("error");
         }
       } catch {
-        if (active) setLoadState("error");
+        if (active && songs.length === 0) setLoadState("error");
       }
     };
 
     void loadPlaylist();
+
+    // Auto-poll every 15 seconds to fetch any new songs added to the JioSaavn playlist live
+    const interval = window.setInterval(loadPlaylist, 15000);
+
     return () => {
       active = false;
+      window.clearInterval(interval);
     };
-  }, []);
+  }, [currentTrackIndex, songs.length]);
 
   useEffect(() => {
     const audio = audioRef.current;
