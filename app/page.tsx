@@ -241,24 +241,24 @@ export default function Page() {
                   </p>
                 </div>
               </div>
-            </div>
 
-            <div className="player-controls player-controls-bottom">
-              <button type="button" className="icon-btn icon-btn-small" onClick={handlePrevious} aria-label="Previous track">
-                <PrevIcon />
-              </button>
-              <button
-                type="button"
-                className="play-btn"
-                onClick={togglePlayback}
-                disabled={isLoadingPlaylist || !currentTrack?.src}
-                aria-label={isPlaying ? "Pause track" : "Play track"}
-              >
-                {isPlaying ? <PauseIcon /> : <PlayIcon />}
-              </button>
-              <button type="button" className="icon-btn icon-btn-small" onClick={handleNext} aria-label="Next track">
-                <NextIcon />
-              </button>
+              <div className="player-controls player-controls-bottom">
+                <button type="button" className="icon-btn icon-btn-small" onClick={handlePrevious} aria-label="Previous track">
+                  <PrevIcon />
+                </button>
+                <button
+                  type="button"
+                  className="play-btn"
+                  onClick={togglePlayback}
+                  disabled={isLoadingPlaylist || !currentTrack?.src}
+                  aria-label={isPlaying ? "Pause track" : "Play track"}
+                >
+                  {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                </button>
+                <button type="button" className="icon-btn icon-btn-small" onClick={handleNext} aria-label="Next track">
+                  <NextIcon />
+                </button>
+              </div>
             </div>
 
             <div className="track-count-row">
