@@ -71,7 +71,10 @@ export default function Page() {
 
     const loadPlaylist = async () => {
       try {
-        const response = await fetch(`/api/jiosaavn-playlist?link=${encodeURIComponent(jiosaavnPlaylistUrl)}`);
+        const response = await fetch(
+          `/api/jiosaavn-playlist?link=${encodeURIComponent(jiosaavnPlaylistUrl)}&_t=${Date.now()}`,
+          { cache: "no-store" }
+        );
         const data = (await response.json()) as { name?: string; songs?: PlaylistSong[] };
 
         if (!active) return;
