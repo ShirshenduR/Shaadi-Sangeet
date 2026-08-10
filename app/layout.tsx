@@ -25,7 +25,12 @@ const body = Manrope({
 
 export const metadata: Metadata = {
   title: "बारात",
-  description: "Baraat songs, streamed live from JioSaavn."
+  description: "Baraat songs, streamed live from JioSaavn.",
+  icons: {
+    icon: "/icon/baarat%20icon.png",
+    shortcut: "/icon/baarat%20icon.png",
+    apple: "/icon/baarat%20icon.png"
+  }
 };
 
 export default function RootLayout({
