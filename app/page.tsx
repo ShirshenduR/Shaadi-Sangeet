@@ -54,6 +54,9 @@ export default function Page() {
   const onlineCount = 31;
 
   const currentTrack = songs[currentTrackIndex];
+  const currentTrackRef = useRef<PlaylistSong | undefined>(undefined);
+  currentTrackRef.current = currentTrack;
+
   const accent = accents[currentTrackIndex % accents.length];
   const duration = currentTrack?.duration || 0;
   const progress = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
@@ -65,7 +68,7 @@ export default function Page() {
     return () => window.clearInterval(interval);
   }, []);
 
-  // Pull the baarat playlist from JioSaavn on mount and poll periodically for new songs.
+  // Pull the baarat playlist from JioSaavn on mount and poll continuously every 10 seconds.
   useEffect(() => {
     let active = true;
 
@@ -73,46 +76,51 @@ export default function Page() {
       try {
         const response = await fetch(
           `/api/jiosaavn-playlist?link=${encodeURIComponent(jiosaavnPlaylistUrl)}&_t=${Date.now()}`,
-          { cache: "no-store" }
+          {
+            cache: "no-store",
+            headers: { "Cache-Control": "no-cache, no-store" }
+          }
         );
         const data = (await response.json()) as { name?: string; songs?: PlaylistSong[] };
 
         if (!active) return;
 
         if (data.songs && data.songs.length > 0) {
-          setSongs((prevSongs) => {
-            // Keep track of current playing song to preserve selection index
-            const currentSong = prevSongs[currentTrackIndex];
-            if (currentSong) {
-              const matchedIndex = data.songs!.findIndex(
-                (s) => s.id === currentSong.id || s.src === currentSong.src
-              );
-              if (matchedIndex !== -1 && matchedIndex !== currentTrackIndex) {
-                setCurrentTrackIndex(matchedIndex);
-              }
+          const freshSongs = data.songs;
+          const activeTrack = currentTrackRef.current;
+
+          if (activeTrack) {
+            const matchedIndex = freshSongs.findIndex(
+              (s) => s.id === activeTrack.id || s.src === activeTrack.src
+            );
+            if (matchedIndex !== -1) {
+              setCurrentTrackIndex(matchedIndex);
             }
-            return data.songs!;
-          });
+          }
+
+          setSongs(freshSongs);
           setPlaylistName(data.name || "बारात");
           setLoadState("ready");
-        } else if (songs.length === 0) {
-          setLoadState("error");
+        } else {
+          setLoadState((prev) => (prev === "ready" ? "ready" : "error"));
         }
       } catch {
-        if (active && songs.length === 0) setLoadState("error");
+        if (active) {
+          setLoadState((prev) => (prev === "ready" ? "ready" : "error"));
+        }
       }
     };
 
     void loadPlaylist();
 
-    // Auto-poll every 15 seconds to fetch any new songs added to the JioSaavn playlist live
-    const interval = window.setInterval(loadPlaylist, 15000);
+    // Poll every 10 seconds to fetch any new songs added on JioSaavn live
+    const interval = window.setInterval(loadPlaylist, 10000);
 
     return () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, [currentTrackIndex, songs.length]);
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;

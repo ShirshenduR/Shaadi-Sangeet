@@ -5,6 +5,31 @@ const JIOSAAVN_API = "https://saavn.sumit.co/api/playlists";
 const JIOSAAVN_SONGS_API = "https://saavn.sumit.co/api/songs";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
+const NO_CACHE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0, private",
+  "Pragma": "no-cache",
+  "Expires": "0",
+  "Surrogate-Control": "no-store"
+};
+
+function extractJioSaavnToken(link: string): string {
+  try {
+    const url = new URL(link);
+    const parts = url.pathname.split("/").filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i].trim();
+      if (p.endsWith("__") || (p.length >= 10 && !["playlist", "featured", "s"].includes(p))) {
+        return p;
+      }
+    }
+    return parts[parts.length - 1] || "";
+  } catch {
+    return "";
+  }
+}
 
 export async function GET(request: NextRequest) {
   const link = request.nextUrl.searchParams.get("link")?.trim();
@@ -12,26 +37,22 @@ export async function GET(request: NextRequest) {
   if (!link) {
     return NextResponse.json(
       { error: "link is required" },
-      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } }
+      { status: 400, headers: NO_CACHE_HEADERS }
     );
   }
 
   try {
-    // 1. Extract playlist token to query JioSaavn live web API directly (bypasses proxy cache)
-    let token = "";
-    try {
-      const url = new URL(link);
-      const parts = url.pathname.split("/").filter(Boolean);
-      token = parts[parts.length - 1] || "";
-    } catch {
-      token = "";
-    }
+    const token = extractJioSaavnToken(link);
 
     if (token) {
+      // Query JioSaavn official API directly with cache-busting _t param to bypass Vercel & proxy caches
       const liveRes = await fetch(
-        `https://www.jiosaavn.com/api.php?__call=webapi.get&token=${token}&type=playlist&p=1&n=1000&_format=json&_marker=0&api_version=4`,
+        `https://www.jiosaavn.com/api.php?__call=webapi.get&token=${token}&type=playlist&p=1&n=1000&_format=json&_marker=0&api_version=4&_t=${Date.now()}`,
         {
-          headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" },
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Cache-Control": "no-cache, no-store"
+          },
           cache: "no-store"
         }
       );
@@ -42,9 +63,10 @@ export async function GET(request: NextRequest) {
         const songIds = rawList.map((item) => item.id).filter(Boolean);
 
         if (songIds.length > 0) {
-          // Batch fetch resolved song details (download URLs, artwork, metadata) by song IDs
-          const songsRes = await fetch(`${JIOSAAVN_SONGS_API}?ids=${songIds.join(",")}`, {
-            cache: "no-store"
+          // Batch fetch resolved song details by IDs with cache-busting timestamp
+          const songsRes = await fetch(`${JIOSAAVN_SONGS_API}?ids=${songIds.join(",")}&_t=${Date.now()}`, {
+            cache: "no-store",
+            headers: { "Cache-Control": "no-cache, no-store" }
           });
 
           if (songsRes.ok) {
@@ -60,7 +82,7 @@ export async function GET(request: NextRequest) {
                   name: liveData.listname || liveData.title || "बारात",
                   songs
                 },
-                { headers: { "Cache-Control": "no-store, max-age=0" } }
+                { headers: NO_CACHE_HEADERS }
               );
             }
           }
@@ -68,16 +90,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 2. Fallback to direct link lookup if live token fetch fails
+    // Fallback to link fetch if live token lookup returns empty
     const response = await fetch(
-      `${JIOSAAVN_API}?link=${encodeURIComponent(link)}&limit=500`,
-      { cache: "no-store" }
+      `${JIOSAAVN_API}?link=${encodeURIComponent(link)}&limit=500&_t=${Date.now()}`,
+      {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store" }
+      }
     );
 
     if (!response.ok) {
       return NextResponse.json(
         { name: "", songs: [] as ResolvedSong[] },
-        { headers: { "Cache-Control": "no-store, max-age=0" } }
+        { headers: NO_CACHE_HEADERS }
       );
     }
 
@@ -93,12 +118,12 @@ export async function GET(request: NextRequest) {
         image: typeof data.image === "object" ? data.image : [],
         songs
       },
-      { headers: { "Cache-Control": "no-store, max-age=0" } }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch {
     return NextResponse.json(
       { name: "", songs: [] as ResolvedSong[] },
-      { headers: { "Cache-Control": "no-store, max-age=0" } }
+      { headers: NO_CACHE_HEADERS }
     );
   }
 }
