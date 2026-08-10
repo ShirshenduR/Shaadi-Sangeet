@@ -15,7 +15,7 @@ const body = Manrope({
 
 export const metadata: Metadata = {
   title: "बारात",
-  description: "A compact baraat music player with live time and rotating album art."
+  description: "Baraat songs, streamed live from JioSaavn."
 };
 
 export default function RootLayout({

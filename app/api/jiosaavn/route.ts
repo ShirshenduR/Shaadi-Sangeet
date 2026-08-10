@@ -1,82 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { asArray, asRecord, toResolvedSong } from "./helpers";
 
-type JsonRecord = Record<string, unknown>;
-
-function pickString(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    const joined = value
-      .map((item) => pickString(item))
-      .filter(Boolean)
-      .join(", ");
-
-    return joined;
-  }
-
-  if (value && typeof value === "object") {
-    const record = value as JsonRecord;
-
-    for (const key of ["name", "title", "label", "text"]) {
-      const candidate = pickString(record[key]);
-      if (candidate) {
-        return candidate;
-      }
-    }
-  }
-
-  return "";
-}
-
-function pickArtwork(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of [...value].reverse()) {
-      const candidate = pickArtwork(item);
-      if (candidate) {
-        return candidate;
-      }
-    }
-
-    return "";
-  }
-
-  if (value && typeof value === "object") {
-    const record = value as JsonRecord;
-
-    for (const key of ["url", "image", "src", "link"]) {
-      const candidate = pickArtwork(record[key]);
-      if (candidate) {
-        return candidate;
-      }
-    }
-  }
-
-  return "";
-}
-
-function pickResult(payload: unknown): JsonRecord {
-  if (!payload || typeof payload !== "object") {
-    return {};
-  }
-
-  const root = payload as JsonRecord;
-  const data = root.data && typeof root.data === "object" ? (root.data as JsonRecord) : root;
-
-  for (const key of ["results", "songs", "items"]) {
-    const list = data[key];
-    if (Array.isArray(list) && list.length > 0 && list[0] && typeof list[0] === "object") {
-      return list[0] as JsonRecord;
-    }
-  }
-
-  return data;
-}
+// Sumit Kolhe's JioSaavn API — https://saavn.sumit.co (saavn.dev aliases here)
+const JIOSAAVN_API = "https://saavn.sumit.co/api/search/songs";
 
 export async function GET(request: NextRequest) {
   const query = request.nextUrl.searchParams.get("query")?.trim();
@@ -85,23 +11,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
 
+  const empty = { id: "", title: query, artist: "", artwork: "", src: "", duration: 0 };
+
   try {
-    const response = await fetch(`https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}`);
+    const response = await fetch(`${JIOSAAVN_API}?query=${encodeURIComponent(query)}&limit=1`, {
+      next: { revalidate: 60 * 60 }
+    });
 
     if (!response.ok) {
-      return NextResponse.json({ query, artwork: "", title: query, artist: "" });
+      return NextResponse.json(empty);
     }
 
     const payload = (await response.json()) as unknown;
-    const result = pickResult(payload);
+    const data = asRecord(asRecord(payload).data);
+    const results = asArray(data.results);
+    const result = asRecord(results[0]);
 
-    return NextResponse.json({
-      query,
-      artwork: pickArtwork(result.image ?? result.artwork ?? result.cover ?? result.thumbnail) || "",
-      title: pickString(result.name ?? result.title) || query,
-      artist: pickString(result.primaryArtists ?? result.artists ?? result.singers ?? result.subtitle)
-    });
+    if (Object.keys(result).length === 0) {
+      return NextResponse.json(empty);
+    }
+
+    const resolved = toResolvedSong(result);
+    return NextResponse.json({ ...resolved, title: resolved.title || query });
   } catch {
-    return NextResponse.json({ query, artwork: "", title: query, artist: "" });
+    return NextResponse.json(empty);
   }
 }

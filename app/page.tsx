@@ -2,60 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 
-type Track = {
+// Your JioSaavn baarat playlist — swap this link for any other JioSaavn
+// playlist URL and the whole player repopulates from it automatically.
+const jiosaavnPlaylistUrl =
+  "https://www.jiosaavn.com/s/playlist/8fa1c266e2d572af6074fb2316b29c53/baarat/GJBgT9Oq3qk14faDlWgB3A__";
+
+const accents = ["#f6c15b", "#ef7b60", "#69d4a5", "#79b8ff", "#d8a1ff"];
+
+type PlaylistSong = {
+  id: string;
   title: string;
   artist: string;
-  year: string;
-  accent: string;
-  query: string;
+  artwork: string;
   src: string;
+  duration: number;
 };
-
-const tracks: Track[] = [
-  {
-    title: "Mujhse Mohabbat Ka Izhaar Karta",
-    artist: "Satrang Music Official",
-    year: "1990s",
-    accent: "#f6c15b",
-    query: "Mujhse Mohabbat Ka Izhaar Karta",
-    src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-  },
-  {
-    title: "Mehndi Laga Ke Rakhna",
-    artist: "Wedding Classics",
-    year: "1990s",
-    accent: "#ef7b60",
-    query: "Mehndi Laga Ke Rakhna",
-    src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
-  },
-  {
-    title: "Bole Chudiyan",
-    artist: "Shaadi Floor",
-    year: "2000s",
-    accent: "#69d4a5",
-    query: "Bole Chudiyan",
-    src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
-  },
-  {
-    title: "London Thumakda",
-    artist: "Shaadi Hits",
-    year: "2010s",
-    accent: "#79b8ff",
-    query: "London Thumakda",
-    src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3"
-  },
-  {
-    title: "Gallan Goodiyan",
-    artist: "Family Dance",
-    year: "2010s",
-    accent: "#d8a1ff",
-    query: "Gallan Goodiyan",
-    src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3"
-  }
-];
-
-const spotifyPlaylistUrl = "https://open.spotify.com/playlist/39dRgNEeF9yJC7j8N3W8Vc?si=RXsyfbwLQBKu3ADmkG8Ujw";
-const jiosaavnUrl = "https://saavn.sumit.co/";
 
 function formatIndianTime(date: Date) {
   const parts = new Intl.DateTimeFormat("en-IN", {
@@ -69,73 +30,65 @@ function formatIndianTime(date: Date) {
   const minute = parts.find((part) => part.type === "minute")?.value ?? "";
   const dayPeriod = (parts.find((part) => part.type === "dayPeriod")?.value ?? "").toLowerCase();
 
-  return `${hour} ${minute} ${dayPeriod}`.trim();
+  return `${hour}:${minute} ${dayPeriod}`.trim();
+}
+
+function formatDuration(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 export default function Page() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [songs, setSongs] = useState<PlaylistSong[]>([]);
+  const [playlistName, setPlaylistName] = useState("बारात");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [indianTime, setIndianTime] = useState(() => formatIndianTime(new Date()));
   const onlineCount = 31;
-  const [artworks, setArtworks] = useState<Record<string, string>>({});
 
-  const currentTrack = tracks[currentTrackIndex];
+  const currentTrack = songs[currentTrackIndex];
+  const accent = accents[currentTrackIndex % accents.length];
+  const duration = currentTrack?.duration || 0;
   const progress = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
-  const currentArtwork = artworks[currentTrack.query] ?? "/background/baarat.png";
 
   useEffect(() => {
-    const updateStatus = () => {
-      const now = new Date();
-      setIndianTime(formatIndianTime(now));
-    };
-
+    const updateStatus = () => setIndianTime(formatIndianTime(new Date()));
     updateStatus();
-    const interval = window.setInterval(updateStatus, 1000);
-
+    const interval = window.setInterval(updateStatus, 1000 * 30);
     return () => window.clearInterval(interval);
   }, []);
 
+  // Pull the whole baarat playlist from JioSaavn on mount.
   useEffect(() => {
     let active = true;
 
-    const loadArtworks = async () => {
-      const resolved = await Promise.all(
-        tracks.map(async (track) => {
-          try {
-            const response = await fetch(`/api/jiosaavn?query=${encodeURIComponent(track.query)}`);
+    const loadPlaylist = async () => {
+      try {
+        const response = await fetch(`/api/jiosaavn-playlist?link=${encodeURIComponent(jiosaavnPlaylistUrl)}`);
+        const data = (await response.json()) as { name?: string; songs?: PlaylistSong[] };
 
-            if (!response.ok) {
-              return [track.query, ""] as const;
-            }
+        if (!active) return;
 
-            const data = (await response.json()) as { artwork?: string };
-            return [track.query, typeof data.artwork === "string" ? data.artwork : ""] as const;
-          } catch {
-            return [track.query, ""] as const;
-          }
-        })
-      );
-
-      if (!active) {
-        return;
-      }
-
-      const nextArtworks: Record<string, string> = {};
-
-      for (const [query, artwork] of resolved) {
-        if (artwork) {
-          nextArtworks[query] = artwork;
+        if (data.songs && data.songs.length > 0) {
+          setSongs(data.songs);
+          setPlaylistName(data.name || "बारात");
+          setLoadState("ready");
+        } else {
+          setLoadState("error");
         }
+      } catch {
+        if (active) setLoadState("error");
       }
-
-      setArtworks(nextArtworks);
     };
 
-    void loadArtworks();
-
+    void loadPlaylist();
     return () => {
       active = false;
     };
@@ -143,25 +96,20 @@ export default function Page() {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
+    if (!audio || !currentTrack?.src) return;
 
     audio.src = currentTrack.src;
     audio.load();
 
     if (isPlaying) {
-      void audio.play().catch(() => {
-        setIsPlaying(false);
-      });
+      void audio.play().catch(() => setIsPlaying(false));
     }
-  }, [currentTrack.src, isPlaying]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.src]);
 
   const playCurrent = async () => {
     const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
+    if (!audio || !currentTrack?.src) return;
 
     try {
       await audio.play();
@@ -181,7 +129,6 @@ export default function Page() {
       pauseCurrent();
       return;
     }
-
     void playCurrent();
   };
 
@@ -189,123 +136,139 @@ export default function Page() {
     setCurrentTrackIndex(index);
     setIsPlaying(true);
     setCurrentTime(0);
-    setDuration(0);
   };
 
   const handlePrevious = () => {
-    const nextIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length;
-    goToTrack(nextIndex);
+    if (songs.length === 0) return;
+    goToTrack((currentTrackIndex - 1 + songs.length) % songs.length);
   };
 
   const handleNext = () => {
-    const nextIndex = (currentTrackIndex + 1) % tracks.length;
-    goToTrack(nextIndex);
+    if (songs.length === 0) return;
+    goToTrack((currentTrackIndex + 1) % songs.length);
   };
 
   const handleSeek = (value: number) => {
     const audio = audioRef.current;
-    if (!audio || !duration) {
-      return;
-    }
-
+    if (!audio || !duration) return;
     audio.currentTime = (value / 100) * duration;
     setCurrentTime(audio.currentTime);
   };
 
+  const isLoadingPlaylist = loadState === "loading";
+  const isErrorPlaylist = loadState === "error";
+
   return (
     <main className="page-shell">
-      <div className="grain grain-a" />
-      <div className="grain grain-b" />
-      <div className="grain grain-c" />
+      <div className="page-backdrop" aria-hidden="true" />
       <div className="halo halo-left" />
       <div className="halo halo-right" />
-      <div className="baraat-scene" aria-hidden="true" />
 
       <header className="chrome-bar">
-        <div className="status-time">
-          <span>{indianTime}</span>
-        </div>
+        <span className="time-chip">{indianTime}</span>
 
         <div className="status-pill glass-panel" aria-live="polite">
           <span className="status-dot" aria-hidden="true" />
-          <span className="status-copy">{onlineCount} online</span>
+          <span>{onlineCount} online</span>
         </div>
 
         <div className="platform-links">
-          <a className="link-pill glass-panel" href={spotifyPlaylistUrl} target="_blank" rel="noreferrer">
-            Spotify
-          </a>
-          <a className="link-pill glass-panel" href={jiosaavnUrl} target="_blank" rel="noreferrer">
-            YT Music
+          <a className="link-pill glass-panel" href={jiosaavnPlaylistUrl} target="_blank" rel="noreferrer">
+            JioSaavn
           </a>
         </div>
       </header>
 
       <section className="stage-shell">
-        <div className="hero-title">
-          <h1>बारात</h1>
+        <div className="hero-copy">
+          <h1 className="hero-title">बारात</h1>
         </div>
 
-        <div className="player-shell glass-panel" style={{ ["--accent" as string]: currentTrack.accent }}>
-          <audio
-            ref={audioRef}
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-            onEnded={handleNext}
-          />
+        {isErrorPlaylist ? (
+          <div className="player-shell glass-panel player-error">
+            <p>Couldn&apos;t load the playlist from JioSaavn right now.</p>
+            <a href={jiosaavnPlaylistUrl} target="_blank" rel="noreferrer">
+              Open {playlistName} on JioSaavn instead
+            </a>
+          </div>
+        ) : (
+          <div className="player-shell glass-panel" style={{ ["--accent" as string]: accent }}>
+            <audio
+              ref={audioRef}
+              onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+              onEnded={handleNext}
+            />
 
-          <div className="player-card">
-            <button
-              className={`album-art ${isPlaying ? "is-spinning" : ""}`}
-              type="button"
-              onClick={togglePlayback}
-              aria-label={isPlaying ? "Pause track" : "Play track"}
-            >
-              <span className="album-image">
-                <img src={currentArtwork} alt="" />
-              </span>
-              <span className="album-center" aria-hidden="true" />
-            </button>
+            <div className="player-top">
+              <button
+                className={`album-art ${isPlaying ? "is-playing" : ""}`}
+                type="button"
+                onClick={togglePlayback}
+                disabled={isLoadingPlaylist || !currentTrack?.src}
+                aria-label={isPlaying ? "Pause track" : "Play track"}
+              >
+                {isLoadingPlaylist ? (
+                  <span className="album-skeleton" />
+                ) : (
+                  <img src={currentTrack?.artwork || "/background/baarat.png"} alt="" />
+                )}
+                {!isLoadingPlaylist && (
+                  <span className="album-play-overlay" aria-hidden="true">
+                    {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                  </span>
+                )}
+              </button>
 
-            <div className="player-copy">
-              <p className="player-label">Now playing</p>
-              <h2>{currentTrack.title}</h2>
-              <p className="player-subtitle">
-                {currentTrack.artist} · {currentTrack.year}
-              </p>
-
-              <div className="timeline">
-                <div className="timeline-track">
-                  <div className="timeline-fill" style={{ width: `${progress}%` }} />
+              <div className="player-copy">
+                <div className="track-meta">
+                  <h2 className="track-title">{isLoadingPlaylist ? "Loading…" : currentTrack?.title}</h2>
+                  <p className="track-artist">{isLoadingPlaylist ? "" : currentTrack?.artist || "—"}</p>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={progress}
-                  onChange={(event) => handleSeek(Number(event.target.value))}
-                  aria-label="Track progress"
-                />
-                <div className="timeline-row">
-                  <span>{formatDuration(currentTime)}</span>
-                  <span>{formatDuration(duration)}</span>
+
+                <div className="timeline">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={progress}
+                    onChange={(event) => handleSeek(Number(event.target.value))}
+                    aria-label="Track progress"
+                    disabled={isLoadingPlaylist || !currentTrack?.src}
+                    style={{ ["--progress" as string]: `${progress}%` }}
+                  />
+                  <p className="timeline-clock">
+                    {formatDuration(currentTime)} / {formatDuration(duration)}
+                  </p>
                 </div>
               </div>
             </div>
 
-            <div className="player-controls">
-              <button type="button" className="icon-btn" onClick={handlePrevious} aria-label="Previous track">
+            <div className="player-controls player-controls-bottom">
+              <button type="button" className="icon-btn icon-btn-small" onClick={handlePrevious} aria-label="Previous track">
                 <PrevIcon />
               </button>
-              <button type="button" className="play-btn" onClick={togglePlayback} aria-label={isPlaying ? "Pause track" : "Play track"}>
+              <button
+                type="button"
+                className="play-btn"
+                onClick={togglePlayback}
+                disabled={isLoadingPlaylist || !currentTrack?.src}
+                aria-label={isPlaying ? "Pause track" : "Play track"}
+              >
                 {isPlaying ? <PauseIcon /> : <PlayIcon />}
               </button>
-              <button type="button" className="icon-btn" onClick={handleNext} aria-label="Next track">
+              <button type="button" className="icon-btn icon-btn-small" onClick={handleNext} aria-label="Next track">
                 <NextIcon />
               </button>
             </div>
+
+            <div className="track-count-row">
+              <span className="track-count">
+                {songs.length > 0 ? `${currentTrackIndex + 1} / ${songs.length}` : "—"}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
+
       </section>
     </main>
   );
@@ -341,17 +304,4 @@ function NextIcon() {
       <path d="M6 17.5 14.5 12 6 6.5v11Zm9.5 0H17v-11h-1.5v11Z" fill="currentColor" />
     </svg>
   );
-}
-
-function formatDuration(totalSeconds: number) {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
-    return "0:00";
-  }
-
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.floor(totalSeconds % 60)
-    .toString()
-    .padStart(2, "0");
-
-  return `${minutes}:${seconds}`;
 }
